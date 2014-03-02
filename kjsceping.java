@@ -4,9 +4,11 @@ import jpcap.JpcapSender;
 import jpcap.packet.EthernetPacket;
 import jpcap.packet.ICMPPacket;
 import jpcap.packet.ARPPacket;
+import jpcap.packet.IPPacket;
 import java.net.InetAddress;
 import jpcap.NetworkInterface;
 import jpcap.NetworkInterfaceAddress;
+import java.util.Random;
 class kjsceping{
 	static NetworkInterface[] devices = JpcapCaptor.getDeviceList();
 	static NetworkInterface device = devices[1];
@@ -26,9 +28,9 @@ class kjsceping{
         ICMPPacket icmpp = new ICMPPacket();
         icmpp.type = ICMPPacket.ICMP_ECHO;
         icmpp.code = 0;
-        icmpp.id = 0x0001;
-        icmpp.seq = 0x0001;
-        //icmpp.data = 
+        icmpp.id = (short)170;
+        icmpp.seq = (short)25;
+        icmpp.data = (getRandomHexString(48)).getBytes();
         icmpp.setIPv4Parameter(0,false,false,false,0,false,false,false,0,88,64,ICMPPacket.IPPROTO_ICMP,srcAddress,destAddress);
 				
 		EthernetPacket ether = new EthernetPacket();
@@ -51,7 +53,7 @@ class kjsceping{
 					throw new IllegalArgumentException(destAddress+" did not responed to Echo request");
 				//if(p.id==icmpp.id){
 				else{
-					System.out.println(p.id+"icmp_seq="+p.seq+" time="+Math.round((((float)end-(float)start)/1000000)*100)/100.0+"ms");
+					System.out.println("icmp_seq="+p.seq+" ttl="+p.hop_limit+" time="+Math.round((((float)end-(float)start)/1000000)*100)/100.0+"ms");
 					diff--;	
 				}
 			else return;
@@ -91,4 +93,12 @@ class kjsceping{
 					return p.sender_hardaddr;
 		}
 	}
+	static String getRandomHexString(int numchars){
+        Random r = new Random();
+        StringBuffer sb = new StringBuffer();
+        while(sb.length() < numchars){
+            sb.append(Integer.toHexString(r.nextInt()));
+        }
+        return sb.toString().substring(0, numchars);
+    }
 }
