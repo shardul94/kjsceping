@@ -14,10 +14,10 @@ class kjsceping{
 	static InetAddress srcAddress = addresses[0].address;
 	static byte[] srcMac = device.mac_address;
     public static void main(String[] args) throws Exception{
-        InetAddress destAddress = InetAddress.getByName("192.168.1.1");
+        InetAddress destAddress = InetAddress.getByName(args[0]);
         byte[] destMac = arp(destAddress);
         
-        JpcapCaptor captor= JpcapCaptor.openDevice(device,2000,false,3000);
+        JpcapCaptor captor= JpcapCaptor.openDevice(device,10000,false,60000);
 		captor.setFilter("icmp",true);
 		JpcapSender sender = captor.getJpcapSenderInstance();
         
@@ -60,7 +60,7 @@ class kjsceping{
     static byte[] arp(InetAddress ip) throws Exception{
     	byte[] broadcast=new byte[]{(byte)255,(byte)255,(byte)255,(byte)255,(byte)255,(byte)255};
     	
-		JpcapCaptor captor= JpcapCaptor.openDevice(device,2000,false,3000);
+		JpcapCaptor captor= JpcapCaptor.openDevice(device,10000,false,60000);
 		captor.setFilter("arp",true);
 		JpcapSender sender = captor.getJpcapSenderInstance();
 		
@@ -73,7 +73,7 @@ class kjsceping{
 		
 		arp.sender_hardaddr=srcMac;
 		arp.sender_protoaddr=srcAddress.getAddress();
-		arp.target_hardaddr=broadcast;
+		arp.target_hardaddr=new byte[]{(byte)0,(byte)0,(byte)0,(byte)0,(byte)0,(byte)0};
 		arp.target_protoaddr=ip.getAddress();
 		
 		EthernetPacket ether=new EthernetPacket();
