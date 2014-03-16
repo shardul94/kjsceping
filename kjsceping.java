@@ -9,57 +9,32 @@ import java.net.InetAddress;
 import jpcap.NetworkInterface;
 import jpcap.NetworkInterfaceAddress;
 import java.util.Random;
+class Global {
+    public static InetAddress srcAddress;
+    public static InetAddress destAddress;
+    public static byte[] srcMac;
+	public static byte[] destMac;
+}
 class kjsceping{
 	static NetworkInterface[] devices = JpcapCaptor.getDeviceList();
-	static NetworkInterface device = devices[1];
+	static NetworkInterface device = devices[0];
 	static NetworkInterfaceAddress[] addresses = device.addresses;
-	static InetAddress srcAddress = addresses[0].address;
-	static byte[] srcMac = device.mac_address;
-    public static void main(String[] args) throws Exception{
-        InetAddress destAddress = InetAddress.getByName(args[0]);
-        byte[] destMac = arp(destAddress);
-        
-        JpcapCaptor captor= JpcapCaptor.openDevice(device,10000,false,60000);
-		captor.setFilter("icmp",true);
-		JpcapSender sender = captor.getJpcapSenderInstance();
-        
-        int diff=0;
-        
-        ICMPPacket icmpp = new ICMPPacket();
-        icmpp.type = ICMPPacket.ICMP_ECHO;
-        icmpp.code = 0;
-        icmpp.id = (short)170;
-        icmpp.seq = (short)25;
-        icmpp.data = (getRandomHexString(48)).getBytes();
-        icmpp.setIPv4Parameter(0,false,false,false,0,false,false,false,0,88,64,ICMPPacket.IPPROTO_ICMP,srcAddress,destAddress);
-				
-		EthernetPacket ether = new EthernetPacket();
-		ether.frametype=EthernetPacket.ETHERTYPE_IP;
-		ether.src_mac=srcMac; // Set the source MAC address to
-		ether.dst_mac=destMac; // Set the destination MAC address
-		icmpp.datalink=ether; // Set the Data Link Layer of the
-		long start = System.nanoTime();
-		System.out.println(start);
-		long end = 0;
-		sender.sendPacket(icmpp);
-		diff++;
-		
-		while(true){
-			ICMPPacket p=(ICMPPacket)captor.getPacket();
-			end = System.nanoTime();
-			System.out.println(end);
-			if(diff!=0)
-				if(p==null)
-					throw new IllegalArgumentException(destAddress+" did not responed to Echo request");
-				//if(p.id==icmpp.id){
-				else{
-					System.out.println("icmp_seq="+p.seq+" ttl="+p.hop_limit+" time="+Math.round((((float)end-(float)start)/1000000)*100)/100.0+"ms");
-					diff--;	
-				}
-			else return;
-		}
+	public static void main(String args[]) throws Exception{
+		Global.srcAddress = addresses[0].address;
+		Global.srcMac = device.mac_address;
+	    Global.destAddress = InetAddress.getByName(args[0]);
+        Global.destMac = arp(Global.destAddress);
+        JpcapCaptor captor= JpcapCaptor.openDevice(device,10000,false,30000);
+        captor.setFilter("icmp",true);
+		//captor.setFilter("icmp && ip=="+Global.srcAddress.toString(),true);
+		Sender icmpSender = new Sender(captor);
+		Thread senderThread = new Thread(icmpSender);
+		senderThread.start();
+		Receiver icmpReceiver = new Receiver(captor);
+		Thread receiverThread = new Thread(icmpReceiver);
+		receiverThread.start();		        
     }
-    static byte[] arp(InetAddress ip) throws Exception{
+	static byte[] arp(InetAddress ip) throws Exception{
     	byte[] broadcast=new byte[]{(byte)255,(byte)255,(byte)255,(byte)255,(byte)255,(byte)255};
     	
 		JpcapCaptor captor= JpcapCaptor.openDevice(device,10000,false,60000);
@@ -73,14 +48,14 @@ class kjsceping{
 		arp.hlen=6;
 		arp.plen=4;
 		
-		arp.sender_hardaddr=srcMac;
-		arp.sender_protoaddr=srcAddress.getAddress();
+		arp.sender_hardaddr=Global.srcMac;
+		arp.sender_protoaddr=Global.srcAddress.getAddress();
 		arp.target_hardaddr=new byte[]{(byte)0,(byte)0,(byte)0,(byte)0,(byte)0,(byte)0};
 		arp.target_protoaddr=ip.getAddress();
 		
 		EthernetPacket ether=new EthernetPacket();
 		ether.frametype=EthernetPacket.ETHERTYPE_ARP;
-		ether.src_mac=srcMac;
+		ether.src_mac=Global.srcMac;
 		ether.dst_mac=broadcast;
 		arp.datalink=ether;
 		sender.sendPacket(arp);
@@ -89,7 +64,7 @@ class kjsceping{
 			ARPPacket p=(ARPPacket)captor.getPacket();
 				if(p==null)
 					throw new IllegalArgumentException(ip+" did not responed to ARP request");
-				if(Arrays.equals(p.target_protoaddr,srcAddress.getAddress()))
+				if(Arrays.equals(p.target_protoaddr,Global.srcAddress.getAddress()))
 					return p.sender_hardaddr;
 		}
 	}
@@ -101,4 +76,61 @@ class kjsceping{
         }
         return sb.toString().substring(0, numchars);
     }
+}
+class Sender implements Runnable{
+	JpcapSender sender;
+	short seq = 0;
+	short id = (short)(Math.random()%32767);
+	Sender(JpcapCaptor c){
+		sender=c.getJpcapSenderInstance();
+	}
+	public void run(){
+		try{
+			while(true){
+				ICMPPacket icmpp = new ICMPPacket();
+		        icmpp.type = ICMPPacket.ICMP_ECHO;
+		        icmpp.code = 0;
+		        icmpp.id = id;
+		        icmpp.seq = seq++;
+		        icmpp.data = (kjsceping.getRandomHexString(48)).getBytes();
+		        icmpp.setIPv4Parameter(0,false,false,false,0,false,false,false,0,88,64,ICMPPacket.IPPROTO_ICMP,Global.srcAddress,Global.destAddress);
+		        
+				EthernetPacket ether = new EthernetPacket();
+				ether.frametype=EthernetPacket.ETHERTYPE_IP;
+				ether.src_mac=Global.srcMac;
+				ether.dst_mac=Global.destMac;
+				icmpp.datalink=ether;
+				
+				long start = System.nanoTime();
+				sender.sendPacket(icmpp);
+				Thread.sleep(1000);
+			}
+		}catch(Exception e) {
+			System.out.println(e);	
+		}
+	}
+}
+class Receiver implements Runnable{
+	JpcapCaptor captor;
+	Receiver(JpcapCaptor c){
+		captor = c;
+	}
+	public void run(){
+		try{
+			while(true){
+				ICMPPacket p=(ICMPPacket)captor.getPacket();
+				long end = System.nanoTime();
+				if(p==null)
+					throw new IllegalArgumentException(Global.destAddress+" did not responed to Echo request");
+				else{
+					if(p.src_ip.toString().equals(Global.destAddress.toString())){
+						//System.out.println("icmp_seq="+p.seq+" ttl="+p.hop_limit+" time="+Math.round((((float)end-(float)start)/1000000)*100)/100.0+"ms");
+						System.out.println("icmp_seq="+p.seq+" ttl="+p.hop_limit+" time="+end+"ms");
+					}
+				}
+			}
+		}catch(Exception e) {
+			System.out.println(e);	
+		}
+	}
 }
