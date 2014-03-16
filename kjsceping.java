@@ -14,16 +14,20 @@ class Global {
     public static InetAddress destAddress;
     public static byte[] srcMac;
 	public static byte[] destMac;
+	public static long[] sentTime;
+	public static String[] sentData;
 }
 class kjsceping{
 	static NetworkInterface[] devices = JpcapCaptor.getDeviceList();
-	static NetworkInterface device = devices[0];
+	static NetworkInterface device = devices[1];
 	static NetworkInterfaceAddress[] addresses = device.addresses;
 	public static void main(String args[]) throws Exception{
 		Global.srcAddress = addresses[0].address;
 		Global.srcMac = device.mac_address;
 	    Global.destAddress = InetAddress.getByName(args[0]);
         Global.destMac = arp(Global.destAddress);
+        Global.sentTime = new long[32768];
+		Global.sentData = new String[32768];
         JpcapCaptor captor= JpcapCaptor.openDevice(device,10000,false,30000);
         captor.setFilter("icmp",true);
 		//captor.setFilter("icmp && ip=="+Global.srcAddress.toString(),true);
@@ -36,30 +40,29 @@ class kjsceping{
     }
 	static byte[] arp(InetAddress ip) throws Exception{
     	byte[] broadcast=new byte[]{(byte)255,(byte)255,(byte)255,(byte)255,(byte)255,(byte)255};
-    	
+    	//Create captor for capturing
 		JpcapCaptor captor= JpcapCaptor.openDevice(device,10000,false,60000);
 		captor.setFilter("arp",true);
 		JpcapSender sender = captor.getJpcapSenderInstance();
-		
+		//Create ARP Packet
 		ARPPacket arp=new ARPPacket();
 		arp.hardtype=ARPPacket.HARDTYPE_ETHER;
 		arp.prototype=ARPPacket.PROTOTYPE_IP;
 		arp.operation=ARPPacket.ARP_REQUEST;
 		arp.hlen=6;
 		arp.plen=4;
-		
 		arp.sender_hardaddr=Global.srcMac;
 		arp.sender_protoaddr=Global.srcAddress.getAddress();
 		arp.target_hardaddr=new byte[]{(byte)0,(byte)0,(byte)0,(byte)0,(byte)0,(byte)0};
 		arp.target_protoaddr=ip.getAddress();
-		
+		//Create Ethernet Packet
 		EthernetPacket ether=new EthernetPacket();
 		ether.frametype=EthernetPacket.ETHERTYPE_ARP;
 		ether.src_mac=Global.srcMac;
 		ether.dst_mac=broadcast;
 		arp.datalink=ether;
 		sender.sendPacket(arp);
-		
+		//For capturing packet
 		while(true){
 			ARPPacket p=(ARPPacket)captor.getPacket();
 				if(p==null)
@@ -80,33 +83,39 @@ class kjsceping{
 class Sender implements Runnable{
 	JpcapSender sender;
 	short seq = 0;
-	short id = (short)(Math.random()%32767);
+	short id = (short)(Math.random()*32768%32768);
 	Sender(JpcapCaptor c){
 		sender=c.getJpcapSenderInstance();
 	}
 	public void run(){
 		try{
 			while(true){
+				//Create ICMP Packet
 				ICMPPacket icmpp = new ICMPPacket();
 		        icmpp.type = ICMPPacket.ICMP_ECHO;
 		        icmpp.code = 0;
 		        icmpp.id = id;
-		        icmpp.seq = seq++;
-		        icmpp.data = (kjsceping.getRandomHexString(48)).getBytes();
+		        icmpp.seq = seq;
+		        String tempData = kjsceping.getRandomHexString(48);
+		        icmpp.data = tempData.getBytes();
 		        icmpp.setIPv4Parameter(0,false,false,false,0,false,false,false,0,88,64,ICMPPacket.IPPROTO_ICMP,Global.srcAddress,Global.destAddress);
-		        
+		        //Create Ethernet Packet
 				EthernetPacket ether = new EthernetPacket();
 				ether.frametype=EthernetPacket.ETHERTYPE_IP;
 				ether.src_mac=Global.srcMac;
 				ether.dst_mac=Global.destMac;
 				icmpp.datalink=ether;
-				
-				long start = System.nanoTime();
+				//Send Packet and record Time and Data
+				Global.sentTime[seq] = System.nanoTime();
+				Global.sentData[seq] = tempData;
 				sender.sendPacket(icmpp);
+				seq++;
+				if(seq==32768) seq=0;
+				System.out.println(icmpp.id);
 				Thread.sleep(1000);
 			}
 		}catch(Exception e) {
-			System.out.println(e);	
+			e.printStackTrace();	
 		}
 	}
 }
@@ -118,19 +127,29 @@ class Receiver implements Runnable{
 	public void run(){
 		try{
 			while(true){
+				//Receive Packet
 				ICMPPacket p=(ICMPPacket)captor.getPacket();
 				long end = System.nanoTime();
 				if(p==null)
 					throw new IllegalArgumentException(Global.destAddress+" did not responed to Echo request");
 				else{
-					if(p.src_ip.toString().equals(Global.destAddress.toString())){
-						//System.out.println("icmp_seq="+p.seq+" ttl="+p.hop_limit+" time="+Math.round((((float)end-(float)start)/1000000)*100)/100.0+"ms");
-						System.out.println("icmp_seq="+p.seq+" ttl="+p.hop_limit+" time="+end+"ms");
+					//Check if packet has same id and is for our ip
+					boolean ipCheck = p.src_ip.toString().equals(Global.destAddress.toString()) && p.dst_ip.toString().equals(Global.srcAddress.toString());
+					if(ipCheck){
+						String temp1 = Global.sentData[p.seq];
+						String temp2 = new String(p.data);
+						boolean dataCheck = temp1.equalsIgnoreCase(temp2);
+						if(dataCheck){
+							long time1 = (end-Global.sentTime[p.seq])/10000;
+							double time = time1/100.0;
+							//System.out.println("icmp_seq="+p.seq+" ttl="+p.hop_limit+" time="+Math.round((((float)end-(float)start)/1000000)*100)/100.0+"ms");
+							System.out.println(p.len+" icmp_seq="+p.seq+" ttl="+p.hop_limit+" time="+time+"ms");
+						}
 					}
 				}
 			}
 		}catch(Exception e) {
-			System.out.println(e);	
+			e.printStackTrace();	
 		}
 	}
 }
