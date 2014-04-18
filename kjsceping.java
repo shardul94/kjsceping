@@ -19,18 +19,19 @@ class Global {
 }
 class kjsceping{
 	static NetworkInterface[] devices = JpcapCaptor.getDeviceList();
-	static NetworkInterface device = devices[1];
+	static NetworkInterface device = devices[0];
 	static NetworkInterfaceAddress[] addresses = device.addresses;
 	public static void main(String args[]) throws Exception{
 		Global.srcAddress = addresses[0].address;
 		Global.srcMac = device.mac_address;
 	    Global.destAddress = InetAddress.getByName(args[0]);
+	    String tempString[] = Global.destAddress.toString().split("/");
+	    System.out.println("PING "+args[0]+" ("+tempString[1]+") 56(84) bytes of data.");
         Global.destMac = arp(Global.destAddress);
         Global.sentTime = new long[32768];
 		Global.sentData = new String[32768];
         JpcapCaptor captor= JpcapCaptor.openDevice(device,10000,false,30000);
         captor.setFilter("icmp",true);
-		//captor.setFilter("icmp && ip=="+Global.srcAddress.toString(),true);
 		Sender icmpSender = new Sender(captor);
 		Thread senderThread = new Thread(icmpSender);
 		senderThread.start();
@@ -82,7 +83,7 @@ class kjsceping{
 }
 class Sender implements Runnable{
 	JpcapSender sender;
-	short seq = 0;
+	short seq = 1;
 	short id = (short)(Math.random()*32768%32768);
 	Sender(JpcapCaptor c){
 		sender=c.getJpcapSenderInstance();
@@ -111,7 +112,6 @@ class Sender implements Runnable{
 				sender.sendPacket(icmpp);
 				seq++;
 				if(seq==32768) seq=0;
-				System.out.println(icmpp.id);
 				Thread.sleep(1000);
 			}
 		}catch(Exception e) {
@@ -142,8 +142,8 @@ class Receiver implements Runnable{
 						if(dataCheck){
 							long time1 = (end-Global.sentTime[p.seq])/10000;
 							double time = time1/100.0;
-							//System.out.println("icmp_seq="+p.seq+" ttl="+p.hop_limit+" time="+Math.round((((float)end-(float)start)/1000000)*100)/100.0+"ms");
-							System.out.println(p.len+" icmp_seq="+p.seq+" ttl="+p.hop_limit+" time="+time+"ms");
+						    String tempString[] = Global.destAddress.toString().split("/");
+							System.out.println("64 bytes from "+tempString[1]+": icmp_req="+p.seq+" ttl="+p.hop_limit+" time="+time+"ms");
 						}
 					}
 				}
